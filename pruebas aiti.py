@@ -6,7 +6,6 @@ from cryptography.hazmat.primitives import hashes
 import re
 from datetime import datetime
 import random
-
 import tkinter as tk
 
 def main():
