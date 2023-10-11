@@ -30,7 +30,30 @@ class VerificadorRegistros:
         # Definimos el archivo donde se almacenarán los datos de usuarios
         self.__database_file = "Registrados.json"
         self.__cuentas_file = "Cuentas.json"
+        self.__key_file = "Key.json"
 
+    def save_users(self, usuarios):
+        # Guardamos los usuarios en el archivo JSON
+        with open(self.__database_file, "w") as file:
+            json.dump(usuarios, file)
+
+    def save_key(self, nombre_usuario, key):
+        # Cargar las claves actuales (si existen)
+        keys = self.load_keys()
+        # Agregar la nueva clave para el usuario
+        keys[nombre_usuario] = key
+        # Guardar las claves actualizadas en el archivo JSON
+        with open(self.__key_file, "w") as key_file:
+            json.dump(keys, key_file)
+
+    def load_keys(self):
+        try:
+            # Cargamos las claves desde el archivo JSON si existe
+            with open(self.__key_file, "r") as file:
+                return json.load(file)
+        except FileNotFoundError:
+            # Si el archivo no existe, devolvemos un diccionario vacío
+            return {}
 
     def load_cuentas(self):
         try:
@@ -106,6 +129,7 @@ class VerificadorRegistros:
                 salt = os.urandom(16)
                 key = self._derive_key(contraseña, salt)
                 usuarios[nombre_usuario] = {"salt": salt.hex(), "key": key}
+                self.save_key(nombre_usuario, key)
 
                 edad = input("Ingrese su fecha de nacimiento: ")
                 if self.validar_edad(edad):
@@ -131,7 +155,6 @@ class VerificadorRegistros:
                 correo = input("Ingrese su correo electronico: ")
                 if self.validar_correo(correo):
                     usuarios[nombre_usuario]["correo"] = correo
-
 
                 calle = input("Ingrese el nombre de su calle: ")
                 usuarios[nombre_usuario]["calle"] = calle
@@ -201,7 +224,6 @@ class DatosBancarios():
 
         numero_cuenta = entidad + "-" + sucursal + "-" + dc + "-" + cuenta
         return numero_cuenta
-
 
 
 if __name__ == "__main__":
