@@ -12,6 +12,7 @@ from base64 import b64encode
 from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
+from Crypto.Hash import HMAC, SHA256
 
 def main():
     verificador_registros = VerificadorRegistros()
@@ -32,7 +33,7 @@ def main():
         print("Autenticación fallida. Por favor, verifique sus credenciales.")
 
     cliente_generado.cfb_encrypt_cuenta(numero_cuenta, nombre_usuario)
-
+    cliente_generado.cfb_decrypt_cuenta(nombre_usuario)
 
 class VerificadorRegistros:
     def __init__(self):
@@ -224,29 +225,95 @@ class DatosBancarios():
         return numero_cuenta
 
     def cfb_encrypt_cuenta(self, texto_en_claro, usuario):
+        print("Encriptar")
         keys = self.verificador_registros.load_claves()   # Consigo la clave
         if usuario in keys:
-            clave =  keys[usuario]
+            clave =  keys[usuario]["clave"]
         else: 
-            clave = get_random_bytes(16)
+            clave_bytes = get_random_bytes(16)
+            clave = base64.b64encode(clave_bytes).decode('utf-8')
+            keys[usuario] = {"clave": clave, "iv": 0}
+            print("clave nueva", clave)
+            self.verificador_registros.save_claves(keys)
 
-        print(clave)
+        print("clave", clave)
         #Encrypt
         data = texto_en_claro.encode ('utf-8')
+        if len(data) != 20:
+            print("numero de cuenta ya encriptado")
+            return False 
+        
         print('Texto sin cifrar', data)
 
+        clave = base64.b64decode(clave.encode('utf-8'))
         cipher_encrypt = AES.new(clave, AES.MODE_CFB)
         ciphered_bytes = cipher_encrypt.encrypt(data)
 
         iv = b64encode(cipher_encrypt.iv).decode('utf-8')
+        keys[usuario]["iv"] = iv 
+        self.verificador_registros.save_claves(keys)
+
         ct = b64encode(ciphered_bytes).decode('utf-8')
 
         print('Mensaje cifrado c es: ', ciphered_bytes)
         print('Mensaje cifrado c es: ', ct)
 
         self.guardar_numero_cuenta(usuario, ct)
+
+         # HMAC 
+        mac = SHA256.new(ciphered_bytes).digest()
+        mac_base64 = b64encode(mac).decode('utf-8')
+
+        print('Mensaje cifrado c es: ', ciphered_bytes)
+        print('Mensaje cifrado c en base64 es: ', ct)
+        print('Etiqueta de autenticación (HMAC):', mac)
+        print('Etiqueta de autenticación (HMAC) en base64:', mac_base64)
+
+        return ct, mac_base64
         
+
         
+
+    def cfb_decrypt_cuenta(self, usuario):
+        print("Desencriptar")
+        keys = self.verificador_registros.load_claves()   # Consigo la clave
+        iv = keys[usuario]["iv"]
+        
+        key = keys[usuario]["clave"]
+        cuentas = self.verificador_registros.load_cuentas()   
+        ct = cuentas[usuario]
+        
+        # Decrypt 
+        iv=b64decode(iv.encode('utf-8'))
+        key = base64.b64decode(key.encode('utf-8'))
+        cipher_decrpyt= AES.new(key, AES.MODE_CFB, iv=iv)
+        print("cipher decrypt", cipher_decrpyt)
+
+        ctmod = b64decode(ct.encode('utf-8'))
+        deciphered_bytes = cipher_decrpyt.decrypt(ctmod)
+        print("deciphered bytes",deciphered_bytes)
+        return deciphered_bytes
 
 if __name__ == "__main__":
     main()
+
+    def hmac(self, usuario):
+        keys = self.verificador_registros.load_claves()   # Consigo la clave
+        secreto = keys[usuario]["clave"]
+        h = HMAC.new(secreto, digestmod=SHA256)
+
+        ct = self.cfb_decrypt_cuenta(usuario)
+
+        h.update(ct)
+        print(h.hexdigest())
+
+        #Validación 
+
+        h = HMAC.new(secreto, digestmod=SHA256)
+        h.update(msg)
+
+        try:
+            h.hexverify(mac)
+            print("El mensaje '%s' es auténtico" % msg)
+        except ValueError:
+            print("El mensaje o la clave son incorrectos")
