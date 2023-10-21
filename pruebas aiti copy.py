@@ -12,7 +12,7 @@ from base64 import b64encode
 from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
-from Crypto.Hash import HMAC, SHA256
+# from Crypto.Hash import HMAC, SHA256
 
 def main():
     verificador_registros = VerificadorRegistros()
@@ -32,8 +32,8 @@ def main():
     else:
         print("Autenticación fallida. Por favor, verifique sus credenciales.")
 
-    cliente_generado.cfb_encrypt_cuenta(numero_cuenta, nombre_usuario)
-    cliente_generado.cfb_decrypt_cuenta(nombre_usuario)
+    hash = cliente_generado.cfb_encrypt_cuenta(numero_cuenta, nombre_usuario)
+    cliente_generado.cfb_decrypt_cuenta(nombre_usuario, hash)
 
 class VerificadorRegistros:
     def __init__(self):
@@ -224,18 +224,19 @@ class DatosBancarios():
         numero_cuenta = entidad + "-" + sucursal + "-" + dc + "-" + cuenta
         return numero_cuenta
 
+
     def cfb_encrypt_cuenta(self, texto_en_claro, usuario):
         print("Encriptar")
         
         keys = self.verificador_registros.load_claves()   # Consigo la clave
         if usuario in keys:
             clave =  keys[usuario]["clave"]
-        else: 
 
+        else: 
             clave_bytes = get_random_bytes(16)
             clave = base64.b64encode(clave_bytes).decode('utf-8')
-            keys[usuario] = {"clave": clave, "iv": 0}
-            # hacemos un hash de la clave random diccionario {salt: }
+            
+            keys[usuario] = {"clave": clave, "iv": 0, "salt": 0}
             print("clave nueva", clave)
             self.verificador_registros.save_claves(keys)
 
@@ -261,22 +262,44 @@ class DatosBancarios():
         print('Mensaje cifrado c es: ', ciphered_bytes)
         print('Mensaje cifrado c en base 64: ', ct)
 
+        # Generamos una key para verificar el mensaje cifrado con un hash 
+        if usuario in keys:
+            salt_hash = keys[usuario]["salt"]
+            if salt_hash == 0:          # usuarios de nueva creación
+                salt_hash = os.urandom(16)
+
+
+        ct_hash = self.verificador_registros._derive_key(ct, salt_hash)
+        # keys[usuario]["hash"] = ct_hash
+        keys[usuario]["salt"] = salt_hash.hex()
+        self.verificador_registros.save_claves(keys)
+
         self.guardar_numero_cuenta(usuario, ct)
+        return ct_hash         
 
-        return ct        
-
-    def cfb_decrypt_cuenta(self, usuario):
+    def cfb_decrypt_cuenta(self, usuario, hash):
         print("Desencriptar")
         keys = self.verificador_registros.load_claves()   # Consigo la clave
+
+        salt_key = keys[usuario]
+        salt_json = bytes.fromhex(salt_key["salt"])   # este es el mismo salt que para el hash del mensaje cifrado
+
+
         iv = keys[usuario]["iv"]
-        
-        key = keys[usuario]["clave"]
         cuentas = self.verificador_registros.load_cuentas()   
         ct = cuentas[usuario]
         
+        derived_key = self.verificador_registros._derive_key(ct, salt_json)
+
+        print("Derived_key", derived_key)
+        print("hash", hash)
+        if derived_key != hash:
+            print("El mensaje se ha visto comprometido")
+            return False
+        
         # Decrypt 
         iv=b64decode(iv.encode('utf-8'))
-        key = base64.b64decode(key.encode('utf-8'))
+        key = base64.b64decode(derived_key.encode('utf-8'))
         cipher_decrpyt= AES.new(key, AES.MODE_CFB, iv=iv)
         print("cipher decrypt", cipher_decrpyt)
 
