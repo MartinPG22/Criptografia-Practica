@@ -128,7 +128,7 @@ class VerificadorRegistros:
                 salt = os.urandom(16)
                 key = self._derive_key(contraseña, salt)
                 usuarios[nombre_usuario] = {"salt": salt.hex(), "key": key}
-
+                
                 edad = input("Ingrese su fecha de nacimiento: ")
                 if self.validar_edad(edad):
                     usuarios[nombre_usuario]["edad"] = edad
@@ -226,13 +226,16 @@ class DatosBancarios():
 
     def cfb_encrypt_cuenta(self, texto_en_claro, usuario):
         print("Encriptar")
+        
         keys = self.verificador_registros.load_claves()   # Consigo la clave
         if usuario in keys:
             clave =  keys[usuario]["clave"]
         else: 
+
             clave_bytes = get_random_bytes(16)
             clave = base64.b64encode(clave_bytes).decode('utf-8')
             keys[usuario] = {"clave": clave, "iv": 0}
+            # hacemos un hash de la clave random diccionario {salt: }
             print("clave nueva", clave)
             self.verificador_registros.save_claves(keys)
 
@@ -244,7 +247,7 @@ class DatosBancarios():
             return False 
         
         print('Texto sin cifrar', data)
-
+        
         clave = base64.b64decode(clave.encode('utf-8'))
         cipher_encrypt = AES.new(clave, AES.MODE_CFB)
         ciphered_bytes = cipher_encrypt.encrypt(data)
@@ -256,23 +259,11 @@ class DatosBancarios():
         ct = b64encode(ciphered_bytes).decode('utf-8')
 
         print('Mensaje cifrado c es: ', ciphered_bytes)
-        print('Mensaje cifrado c es: ', ct)
+        print('Mensaje cifrado c en base 64: ', ct)
 
         self.guardar_numero_cuenta(usuario, ct)
 
-         # HMAC 
-        mac = SHA256.new(ciphered_bytes).digest()
-        mac_base64 = b64encode(mac).decode('utf-8')
-
-        print('Mensaje cifrado c es: ', ciphered_bytes)
-        print('Mensaje cifrado c en base64 es: ', ct)
-        print('Etiqueta de autenticación (HMAC):', mac)
-        print('Etiqueta de autenticación (HMAC) en base64:', mac_base64)
-
-        return ct, mac_base64
-        
-
-        
+        return ct        
 
     def cfb_decrypt_cuenta(self, usuario):
         print("Desencriptar")
@@ -296,24 +287,3 @@ class DatosBancarios():
 
 if __name__ == "__main__":
     main()
-
-    def hmac(self, usuario):
-        keys = self.verificador_registros.load_claves()   # Consigo la clave
-        secreto = keys[usuario]["clave"]
-        h = HMAC.new(secreto, digestmod=SHA256)
-
-        ct = self.cfb_decrypt_cuenta(usuario)
-
-        h.update(ct)
-        print(h.hexdigest())
-
-        #Validación 
-
-        h = HMAC.new(secreto, digestmod=SHA256)
-        h.update(msg)
-
-        try:
-            h.hexverify(mac)
-            print("El mensaje '%s' es auténtico" % msg)
-        except ValueError:
-            print("El mensaje o la clave son incorrectos")
