@@ -7,23 +7,29 @@ import re
 from datetime import datetime
 import random
 import tkinter as tk
+import logging
 
 from base64 import b64encode
 from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
-# from Crypto.Hash import HMAC, SHA256
 
-def main():
+
+def main(): # Codigo main 
+    # Creamos una clase verificador registro para un codigo mas ordenado y coherente
     verificador_registros = VerificadorRegistros()
-    print("Directorio de trabajo actual:", os.getcwd())
+    # Se pide el usuario y la contraseña para acceder a la aplicación del banco 
     nombre_usuario = input("Ingrese su nombre de usuario: ")
     contraseña = input("Ingrese su contraseña: ")
 
+    # Llamamos a la función autenticate para verificar que la contraseña es correcta
     if verificador_registros.authenticate(nombre_usuario, contraseña):
         print("Autenticación exitosa. Bienvenido.")
+        # Llamamos a la clase DatosBancarios para trabajar con la cuenta del banco
         cliente_generado = DatosBancarios(verificador_registros)
+        # Generamos el numero de cuenta si no existe, y si existe devolvemos el que ya tiene 
         numero_cuenta = cliente_generado.generar_numero_cuenta(nombre_usuario)
+        # Una vez obtenido guardamos el numero de cuenta
         cliente_generado.guardar_numero_cuenta(nombre_usuario, numero_cuenta)
 
         print("Número de cuenta generado:", numero_cuenta)
@@ -31,8 +37,9 @@ def main():
         
     else:
         print("Autenticación fallida. Por favor, verifique sus credenciales.")
-
+    # Encriptamos la cuenta y generamos un hash para la autenticación de mensaje
     hash = cliente_generado.cfb_encrypt_cuenta(numero_cuenta, nombre_usuario)
+    # Desencriptamos la cuenta con ayuda del hash 
     cliente_generado.cfb_decrypt_cuenta(nombre_usuario, hash)
 
 class VerificadorRegistros:
@@ -43,6 +50,7 @@ class VerificadorRegistros:
         self.__claves_file = "Key.json"
 
     def load_claves(self):
+        # Función para abrir y trabajar con la información del json Key.json
         try:
             with open(self.__claves_file, "r") as file:
                 return json.load(file)
@@ -50,11 +58,13 @@ class VerificadorRegistros:
             return {}
 
     def save_claves(self, keys):
+        # Función para guardar las claves en el json key.json
         with open(self.__claves_file, "w") as file:
             json.dump(keys, file)
 
 
     def load_cuentas(self):
+        # Función para abrir y trabajar con la información del json Cuentas.json
         try:
             with open(self.__cuentas_file, "r") as file:
                 return json.load(file)
@@ -62,6 +72,7 @@ class VerificadorRegistros:
             return {}
 
     def save_cuentas(self, cuentas):
+        # Función para guardar las cuentas en el json key.json
         with open(self.__cuentas_file, "w") as file:
             json.dump(cuentas, file)
 
@@ -74,10 +85,12 @@ class VerificadorRegistros:
             salt=salt,
             iterations=100000,  # Número de iteraciones
         )
-        key = kdf.derive(contraseña.encode('utf-8'))
+        # Derivamos la contraseña
+        key = kdf.derive(contraseña.encode('utf-8')) 
         return base64.b64encode(key).decode('utf-8')
 
     def load_users(self):
+        # Función para abrir y trabajar con la información del json Registrados.json
         try:
             # Cargamos los usuarios desde el archivo JSON si existe
             with open(self.__database_file, "r") as file:
@@ -88,47 +101,40 @@ class VerificadorRegistros:
 
 
     def save_users(self, usuarios):
-        "Guardamos los usuarios en el archivo JSON"
+        # Guardamos los usuarios en el archivo JSON
         with open(self.__database_file, "w") as file:
             json.dump(usuarios, file)
 
     def authenticate(self, nombre_usuario: str, contraseña: str):
+        # Función para verificar el inicio de sesión del usuario
+        # Cargamos los usuarios
         usuarios = self.load_users()
-
+        # Si el usuario ya existe en el json 
         if nombre_usuario in usuarios:
+            # Cargamos su salt y su contraseña derivada
             salt_key = usuarios[nombre_usuario]
             salt_json = bytes.fromhex(salt_key["salt"])
             key_json = salt_key["key"]
-
+            # Derivamos la contraseña que nos dan en el inicio de sesión 
             derived_key = self._derive_key(contraseña, salt_json)
-
+            
+            # Si conincide con la contraseña derivada que teniamos guardada, se da por valido el inicio de sesión 
             if derived_key == key_json:
-                if "dni" not in usuarios[nombre_usuario] or "telefono" not in usuarios[nombre_usuario]:
-                    # Si falta DNI o teléfono, solicitarlos y guardarlos
-                    dni = input("Ingrese su DNI: ")
-                    telefono = input("Ingrese su número de teléfono: ")
-                    correo = input("Ingrese su correo electronico: ")
-                    calle = input("Ingrese el nombre de su calle: ")
-                    edad = input("Ingrese su fecha de nacimiento: ")
-
-                    usuarios[nombre_usuario]["dni"] = dni
-                    usuarios[nombre_usuario]["telefono"] = telefono
-                    usuarios[nombre_usuario]["correo"] = correo
-                    usuarios[nombre_usuario]["calle"] = calle
-                    usuarios[nombre_usuario]["edad"] = edad
-                    self.save_users(usuarios)
-
                 return True
             else:
                 return False
+            
+        # Si el usuario no existe preguntaremos si quiere registrarse    
         else:
             print(f"El usuario '{nombre_usuario}' no existe. ¿Desea registrarse?")
             respuesta = input("Sí (s) / No (n): ")
             if respuesta.lower() == "s":
+                # Generamos un salt random y derivamos la contraseña
                 salt = os.urandom(16)
                 key = self._derive_key(contraseña, salt)
+                # Guardamos el salt y la contraseña derivada en Registrados.json
                 usuarios[nombre_usuario] = {"salt": salt.hex(), "key": key}
-                
+                # Información personal que se guarda Registrados.json
                 edad = input("Ingrese su fecha de nacimiento: ")
                 if self.validar_edad(edad):
                     usuarios[nombre_usuario]["edad"] = edad
@@ -157,32 +163,26 @@ class VerificadorRegistros:
 
                 calle = input("Ingrese el nombre de su calle: ")
                 usuarios[nombre_usuario]["calle"] = calle
-
+                # Guardamos los dato en Registrados
                 self.save_users(usuarios)
                 return True
             else:
                 return False
 
     def validar_dni(self, dni):
+        # Función en validar dni
         tabla_letras = "TRWAGMYFPDXBNJZSQVHLCKE"
         if len(dni) != 9:
             return False
         return True
-        #try:
-            #num = int(dni[:-1])
-        #except ValueError:
-            #return False
-        #letra = dni[-1]
-        #if letra.upper() == tabla_letras[num % 23]:
-            #return True
-        #return False"""
 
     def validar_numero_telefono(self, numero):
-
+        # Función para validar el numero de telefono
         patron = re.compile(r'^(\+34|34)?[6-9]\d{8}$')
         return bool(patron.match(numero))
 
     def validar_edad(self, edad_str):
+        # Función para validar la edad
         try:
             fecha_nacimiento = datetime.strptime(edad_str, '%d/%m/%Y')
             hoy = datetime.now()
@@ -193,25 +193,30 @@ class VerificadorRegistros:
             return False
 
     def validar_correo(self, correo):
+        # Función para validar el correo
         patron = r'^[\w\.-]+@[\w\.-]+$'
         return bool(re.match(patron, correo))
 
 class DatosBancarios():
-
+    # Clase para la cuenta bancaria, y lo que vamos a encriptar
     def __init__(self, verificador_registros):
         self.verificador_registros = verificador_registros
 
     def obtener_numero_cuenta(self, nombre_usuario):
+        # Función para obtener los datos de Cuentas.json
         cuentas = self.verificador_registros.load_cuentas()
         if nombre_usuario in cuentas:
             return cuentas[nombre_usuario]
         return None
+    
     def guardar_numero_cuenta(self, nombre_usuario, numero_cuenta):
+        # Función para guardar en Cuentas.json
         cuentas = self.verificador_registros.load_cuentas()
         cuentas[nombre_usuario] = numero_cuenta
         self.verificador_registros.save_cuentas(cuentas)
 
     def generar_numero_cuenta(self, nombre_usuario):
+        # Se genera un numero de cuenta, si ya existe no lo hace
         numero_cuenta_existente = self.obtener_numero_cuenta(nombre_usuario)
         if numero_cuenta_existente:
             return numero_cuenta_existente
@@ -230,12 +235,16 @@ class DatosBancarios():
         
         keys = self.verificador_registros.load_claves()   # Consigo la clave
         if usuario in keys:
+            # Ya se ha encriptado la cuenta
             clave =  keys[usuario]["clave"]
 
-        else: 
+        else:
+            # Se genera por primera vez la cuenta y generamos las claves por primera vez  
             clave_bytes = get_random_bytes(16)
-            clave = base64.b64encode(clave_bytes).decode('utf-8')
-            
+            logging.debug("El tamaño de la clave es ", len(clave_bytes))
+            # Para poder guardar la clave en json
+            clave = base64.b64encode(clave_bytes).decode('utf-8') 
+            # Lo que guardaremos en Key.json
             keys[usuario] = {"clave": clave, "iv": 0, "salt": 0}
             print("clave nueva", clave)
             self.verificador_registros.save_claves(keys)
@@ -245,31 +254,38 @@ class DatosBancarios():
         data = texto_en_claro.encode ('utf-8')
         if len(data) != 20:
             print("numero de cuenta ya encriptado")
-            return False 
-        
-        print('Texto sin cifrar', data)
-        
-        clave = base64.b64decode(clave.encode('utf-8'))
-        cipher_encrypt = AES.new(clave, AES.MODE_CFB)
-        ciphered_bytes = cipher_encrypt.encrypt(data)
+            ct = self.obtener_numero_cuenta(usuario)
+            print(ct, "ct")
+            
+            
+        if len(data) == 20:
+            print('Texto sin cifrar', data)
+            
+            clave = base64.b64decode(clave.encode('utf-8'))
+            cipher_encrypt = AES.new(clave, AES.MODE_CFB)
+            ciphered_bytes = cipher_encrypt.encrypt(data)
 
-        iv = b64encode(cipher_encrypt.iv).decode('utf-8')
-        keys[usuario]["iv"] = iv 
-        self.verificador_registros.save_claves(keys)
+            iv = b64encode(cipher_encrypt.iv).decode('utf-8')
+            keys[usuario]["iv"] = iv 
+            self.verificador_registros.save_claves(keys)
 
-        ct = b64encode(ciphered_bytes).decode('utf-8')
+            ct = b64encode(ciphered_bytes).decode('utf-8')
 
-        print('Mensaje cifrado c es: ', ciphered_bytes)
-        print('Mensaje cifrado c en base 64: ', ct)
+            print('Mensaje cifrado c es: ', ciphered_bytes)
+            print('Mensaje cifrado c en base 64: ', ct)
 
         # Generamos una key para verificar el mensaje cifrado con un hash 
         if usuario in keys:
             salt_hash = keys[usuario]["salt"]
+            
             if salt_hash == 0:          # usuarios de nueva creación
                 salt_hash = os.urandom(16)
+            else:
+                salt_hash = bytes.fromhex(salt_hash)
 
-
+        print("Hola")
         ct_hash = self.verificador_registros._derive_key(ct, salt_hash)
+        print(ct_hash, "ct_hash")
         # keys[usuario]["hash"] = ct_hash
         keys[usuario]["salt"] = salt_hash.hex()
         self.verificador_registros.save_claves(keys)
@@ -277,7 +293,7 @@ class DatosBancarios():
         self.guardar_numero_cuenta(usuario, ct)
         return ct_hash         
 
-    def cfb_decrypt_cuenta(self, usuario, hash):
+    def cfb_decrypt_cuenta(self, usuario, hash_x):
         print("Desencriptar")
         keys = self.verificador_registros.load_claves()   # Consigo la clave
 
@@ -292,8 +308,8 @@ class DatosBancarios():
         derived_key = self.verificador_registros._derive_key(ct, salt_json)
 
         print("Derived_key", derived_key)
-        print("hash", hash)
-        if derived_key != hash:
+        print("hash", hash_x)
+        if derived_key != hash_x:
             print("El mensaje se ha visto comprometido")
             return False
         
