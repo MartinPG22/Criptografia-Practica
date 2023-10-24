@@ -8,11 +8,18 @@ from datetime import datetime
 import random
 import tkinter as tk
 import logging
+import sys
 
 from base64 import b64encode
 from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
+
+# Configura el nivel de registro
+logging.basicConfig(level=logging.DEBUG)
+
+# Configura la salida de registro a la terminal
+logging.basicConfig(stream=sys.stdout)
 
 
 def main(): # Codigo main 
@@ -21,7 +28,7 @@ def main(): # Codigo main
     # Se pide el usuario y la contraseña para acceder a la aplicación del banco 
     nombre_usuario = input("Ingrese su nombre de usuario: ")
     contraseña = input("Ingrese su contraseña: ")
-
+    
     # Llamamos a la función autenticate para verificar que la contraseña es correcta
     if verificador_registros.authenticate(nombre_usuario, contraseña):
         print("Autenticación exitosa. Bienvenido.")
@@ -107,14 +114,17 @@ class VerificadorRegistros:
 
     def authenticate(self, nombre_usuario: str, contraseña: str):
         # Función para verificar el inicio de sesión del usuario
+        
         # Cargamos los usuarios
         usuarios = self.load_users()
         # Si el usuario ya existe en el json 
         if nombre_usuario in usuarios:
+            
             # Cargamos su salt y su contraseña derivada
             salt_key = usuarios[nombre_usuario]
             salt_json = bytes.fromhex(salt_key["salt"])
             key_json = salt_key["key"]
+
             # Derivamos la contraseña que nos dan en el inicio de sesión 
             derived_key = self._derive_key(contraseña, salt_json)
             
@@ -129,11 +139,14 @@ class VerificadorRegistros:
             print(f"El usuario '{nombre_usuario}' no existe. ¿Desea registrarse?")
             respuesta = input("Sí (s) / No (n): ")
             if respuesta.lower() == "s":
+
                 # Generamos un salt random y derivamos la contraseña
                 salt = os.urandom(16)
                 key = self._derive_key(contraseña, salt)
+
                 # Guardamos el salt y la contraseña derivada en Registrados.json
                 usuarios[nombre_usuario] = {"salt": salt.hex(), "key": key}
+
                 # Información personal que se guarda Registrados.json
                 edad = input("Ingrese su fecha de nacimiento: ")
                 if self.validar_edad(edad):
@@ -160,9 +173,9 @@ class VerificadorRegistros:
                 if self.validar_correo(correo):
                     usuarios[nombre_usuario]["correo"] = correo
 
-
                 calle = input("Ingrese el nombre de su calle: ")
                 usuarios[nombre_usuario]["calle"] = calle
+
                 # Guardamos los dato en Registrados
                 self.save_users(usuarios)
                 return True
@@ -232,7 +245,7 @@ class DatosBancarios():
 
     def cfb_encrypt_cuenta(self, texto_en_claro, usuario):
         print("Encriptar")
-        
+        logging.debug("Encriptado con AES en modo CFB")
         keys = self.verificador_registros.load_claves()   # Consigo la clave
         if usuario in keys:
             # Ya se ha encriptado la cuenta
@@ -241,7 +254,8 @@ class DatosBancarios():
         else:
             # Se genera por primera vez la cuenta y generamos las claves por primera vez  
             clave_bytes = get_random_bytes(16)
-            logging.debug("El tamaño de la clave es ", len(clave_bytes))
+            long = len(clave_bytes)
+            logging.debug(f"El tamaño de la clave es {long}, se usa el cifrado AES en modo CFB")
             # Para poder guardar la clave en json
             clave = base64.b64encode(clave_bytes).decode('utf-8') 
             # Lo que guardaremos en Key.json
@@ -251,24 +265,27 @@ class DatosBancarios():
 
         print("clave", clave)
         #Encrypt
+        # Se convierte en bytes para el uso de los algoritmos
         data = texto_en_claro.encode ('utf-8')
-        if len(data) != 20:
+        if len(data) != 20: # La cuenta ya esta encriptado
             print("numero de cuenta ya encriptado")
             ct = self.obtener_numero_cuenta(usuario)
-            print(ct, "ct")
+            # Recuperas la cuenta encriptado
             
-            
-        if len(data) == 20:
+        if len(data) == 20: # Se acaba de generar la cuenta y todavía no esta encriptada
             print('Texto sin cifrar', data)
-            
+            # La clave generada se reconvierte a bytes para usar el AES
             clave = base64.b64decode(clave.encode('utf-8'))
+            # Creación de un objeto de cifrado
             cipher_encrypt = AES.new(clave, AES.MODE_CFB)
+            # Cifrado de los datos 
             ciphered_bytes = cipher_encrypt.encrypt(data)
 
+            # Guardamos el vector de inicialización para volver a usarlo para desencriptar la información
             iv = b64encode(cipher_encrypt.iv).decode('utf-8')
             keys[usuario]["iv"] = iv 
             self.verificador_registros.save_claves(keys)
-
+            # Mensaje cifrado que guardamos y no esta en bytes
             ct = b64encode(ciphered_bytes).decode('utf-8')
 
             print('Mensaje cifrado c es: ', ciphered_bytes)
@@ -277,49 +294,58 @@ class DatosBancarios():
         # Generamos una key para verificar el mensaje cifrado con un hash 
         if usuario in keys:
             salt_hash = keys[usuario]["salt"]
-            
-            if salt_hash == 0:          # usuarios de nueva creación
-                salt_hash = os.urandom(16)
-            else:
+            if salt_hash == 0:          # Usuarios de nueva creación
+                salt_hash = os.urandom(16)  # Clave de 16 bytes 
+            else:                        # Usamos el salt ya guardado
                 salt_hash = bytes.fromhex(salt_hash)
 
-        print("Hola")
+        # Aplicamos el hash sobre la cuenta cifrada 
         ct_hash = self.verificador_registros._derive_key(ct, salt_hash)
         print(ct_hash, "ct_hash")
-        # keys[usuario]["hash"] = ct_hash
+        # Guardamos el salt para usarlo en el descifrado
         keys[usuario]["salt"] = salt_hash.hex()
         self.verificador_registros.save_claves(keys)
-
+        # Guardamos el numero de cuenta 
         self.guardar_numero_cuenta(usuario, ct)
+        # Devolvemos el hash del mensaje cifrado para usarlo en el descifrado 
         return ct_hash         
 
     def cfb_decrypt_cuenta(self, usuario, hash_x):
-        print("Desencriptar")
+        logging.debug("Desencriptado con AES en modo CFB")
         keys = self.verificador_registros.load_claves()   # Consigo la clave
-
+        # Accedemos al salt
         salt_key = keys[usuario]
-        salt_json = bytes.fromhex(salt_key["salt"])   # este es el mismo salt que para el hash del mensaje cifrado
+        salt_json = bytes.fromhex(salt_key["salt"])   
 
-
+        # Accedemos al vector de inicialización
         iv = keys[usuario]["iv"]
         cuentas = self.verificador_registros.load_cuentas()   
+        # Accedemos a la cuenta cifrada
         ct = cuentas[usuario]
-        
+        # Derivamos cel mensaje cifrado 
         derived_key = self.verificador_registros._derive_key(ct, salt_json)
 
         print("Derived_key", derived_key)
         print("hash", hash_x)
+        # Comprobamos que el hash recibido es el mismo que el generado con la cuenta cifrada guardada
         if derived_key != hash_x:
             print("El mensaje se ha visto comprometido")
             return False
         
         # Decrypt 
+        # El vector de inicialización vuelven a sus bytes originales 
         iv=b64decode(iv.encode('utf-8'))
+        # La clave de cifrado vuelven a sus bytes originales 
         key = base64.b64decode(derived_key.encode('utf-8'))
+        # Logging del tamaño de clave y metodo de encriptación 
+        long = len(key)
+        logging.debug(f"El tamaño de la clave es {long}, se usa el cifrado AES en modo CFB")
+        # Generamos el objeto de descifrado 
         cipher_decrpyt= AES.new(key, AES.MODE_CFB, iv=iv)
         print("cipher decrypt", cipher_decrpyt)
-
+        
         ctmod = b64decode(ct.encode('utf-8'))
+        # Desciframos la cuenta cifrada
         deciphered_bytes = cipher_decrpyt.decrypt(ctmod)
         print("deciphered bytes",deciphered_bytes)
         return deciphered_bytes
