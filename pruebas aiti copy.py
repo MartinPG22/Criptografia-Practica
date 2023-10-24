@@ -15,6 +15,7 @@ from base64 import b64decode
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
+
 # Configura el nivel de registro
 logging.basicConfig(level=logging.DEBUG)
 
@@ -114,7 +115,7 @@ class VerificadorRegistros:
 
     def authenticate(self, nombre_usuario: str, contraseña: str):
         # Función para verificar el inicio de sesión del usuario
-        
+
         # Cargamos los usuarios
         usuarios = self.load_users()
         # Si el usuario ya existe en el json 
